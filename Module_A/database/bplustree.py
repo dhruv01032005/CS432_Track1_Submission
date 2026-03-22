@@ -137,7 +137,7 @@ class BPlusTree:
             node = node.next
         return result
 
-    def visualize_tree(self):
+    def visualize_tree(self, as_figure=True):
         try:
             from graphviz import Digraph
         except ImportError as exc:
@@ -145,24 +145,57 @@ class BPlusTree:
                 "graphviz is required for tree visualization. Install with 'pip install graphviz'."
             ) from exc
 
-        dot = Digraph("BPlusTree", node_attr={"shape": "record"})
+        dot = Digraph("BPlusTree")
+        dot.attr(rankdir="TB", splines="polyline")
+        dot.attr(
+            "node",
+            shape="box",
+            style="rounded",
+            fontname="Helvetica",
+            color="#333333",
+        )
         self._add_nodes(dot, self.root)
         self._add_edges(dot, self.root)
-        return dot
+
+        # When the root is also a leaf, include a visual root so the output still looks like a tree.
+        if self.root.leaf:
+            root_id = "virtual_root"
+            dot.node(root_id, "Root", shape="circle", style="filled", fillcolor="#e8f1ff")
+            dot.edge(root_id, str(id(self.root)))
+
+        if not as_figure:
+            return dot
+
+        try:
+            from IPython.display import Image
+        except ImportError as exc:
+            raise ImportError(
+                "IPython is required to display tree figures inline. Install with 'pip install ipython'."
+            ) from exc
+
+        image_data = dot.pipe(format="png")
+        return Image(data=image_data)
+
+    def _escape_label_text(self, text):
+        """Escape characters that can affect plain Graphviz labels."""
+        return str(text).replace("\\", "\\\\").replace("\n", "\\n")
 
     def _add_nodes(self, dot, node):
         node_id = str(id(node))
         if node.leaf:
             if node.keys:
-                pairs = [f"{k}:{node.values[i]}" for i, k in enumerate(node.keys)]
-                label = "{Leaf|" + "|".join(pairs) + "}"
+                pairs = [
+                    f"{self._escape_label_text(k)}: {self._escape_label_text(node.values[i])}"
+                    for i, k in enumerate(node.keys)
+                ]
+                label = "Leaf\\n" + "\\n".join(pairs)
             else:
-                label = "{Leaf|empty}"
+                label = "Leaf\\nempty"
         else:
             if node.keys:
-                label = "{Internal|" + "|".join(str(k) for k in node.keys) + "}"
+                label = "Internal\\nkeys: " + ", ".join(self._escape_label_text(k) for k in node.keys)
             else:
-                label = "{Internal|root}"
+                label = "Internal\\nroot"
 
         dot.node(node_id, label)
         if not node.leaf:
@@ -173,7 +206,7 @@ class BPlusTree:
         node_id = str(id(node))
         if node.leaf:
             if node.next is not None:
-                dot.edge(node_id, str(id(node.next)), style="dashed", color="gray")
+                dot.edge(node_id, str(id(node.next)), style="dashed", color="gray", constraint="false")
             return
 
         for child in node.children:

@@ -1,5 +1,8 @@
 import random
 import time
+import gc
+import tracemalloc
+import statistics
 import matplotlib.pyplot as plt
 
 from database.bplustree import BPlusTree
@@ -77,6 +80,146 @@ class PerformanceAnalyzer:
 
         return bplus_time, brute_time
 
+    def _build_bplus(self, keys):
+        bpt = BPlusTree(t=self.tree_degree)
+        for key in keys:
+            bpt.insert(key, key)
+        return bpt
+
+    def _build_bruteforce(self, keys):
+        brute = BruteForceDB()
+        for key in keys:
+            brute.insert(key)
+        return brute
+
+    def _generate_random_workload(self, initial_keys, task_count):
+        """Create a deterministic workload mix of insert/search/delete operations."""
+        key_set = set(initial_keys)
+        workload = []
+        next_key = max(initial_keys) + 1 if initial_keys else 0
+
+        for _ in range(task_count):
+            roll = self.rng.random()
+
+            if roll < 0.35:
+                key = next_key
+                next_key += 1
+                key_set.add(key)
+                workload.append(("insert", key))
+            elif roll < 0.75:
+                upper = max(0, next_key - 1)
+                key = self.rng.randint(0, upper)
+                workload.append(("search", key))
+            else:
+                if key_set:
+                    key = self.rng.choice(tuple(key_set))
+                    key_set.remove(key)
+                    workload.append(("delete", key))
+                else:
+                    workload.append(("search", 0))
+
+        return workload
+
+    def _apply_workload_bplus(self, keys, workload):
+        bpt = self._build_bplus(keys)
+        start = time.perf_counter()
+        for op, key in workload:
+            if op == "insert":
+                bpt.insert(key, key)
+            elif op == "search":
+                bpt.search(key)
+            else:
+                bpt.delete(key)
+        return time.perf_counter() - start
+
+    def _apply_workload_bruteforce(self, keys, workload):
+        brute = self._build_bruteforce(keys)
+        start = time.perf_counter()
+        for op, key in workload:
+            if op == "insert":
+                brute.insert(key)
+            elif op == "search":
+                brute.search(key)
+            else:
+                brute.delete(key)
+        return time.perf_counter() - start
+
+    def _measure_random_performance(self, size, task_count):
+        key_space = max(size * 20, task_count * 3)
+        initial_keys = self.rng.sample(range(key_space), size)
+        workload = self._generate_random_workload(initial_keys, task_count)
+
+        bplus_time = self._apply_workload_bplus(initial_keys, workload)
+        brute_time = self._apply_workload_bruteforce(initial_keys, workload)
+        return bplus_time, brute_time
+
+    def _peak_memory_for_builder(self, builder):
+        gc.collect()
+        tracemalloc.start()
+        try:
+            builder()
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        return peak
+
+    def _measure_memory_usage(self, keys):
+        bplus_peak = self._peak_memory_for_builder(lambda: self._build_bplus(keys))
+        brute_peak = self._peak_memory_for_builder(lambda: self._build_bruteforce(keys))
+        return bplus_peak, brute_peak
+
+    def _measure_automated_benchmark(
+        self,
+        size,
+        benchmark_runs,
+        search_count,
+        range_query_count,
+        delete_count,
+    ):
+        bplus_totals = []
+        brute_totals = []
+
+        for _ in range(benchmark_runs):
+            key_space = size * 10
+            keys = self.rng.sample(range(key_space), size)
+
+            bpt, brute, bplus_insert, brute_insert = self._measure_insert(keys)
+
+            current_search_count = min(search_count, key_space)
+            bplus_search, brute_search = self._measure_search(
+                bpt,
+                brute,
+                key_space,
+                current_search_count,
+            )
+
+            span = max(5, size // 20)
+            bplus_range, brute_range = self._measure_range_query(
+                bpt,
+                brute,
+                key_space,
+                range_query_count,
+                span,
+            )
+
+            current_delete_count = min(delete_count, len(keys))
+            bplus_delete, brute_delete = self._measure_delete(
+                bpt,
+                brute,
+                keys,
+                current_delete_count,
+            )
+
+            bplus_totals.append(bplus_insert + bplus_search + bplus_range + bplus_delete)
+            brute_totals.append(brute_insert + brute_search + brute_range + brute_delete)
+
+        return {
+            "bplus_mean": statistics.mean(bplus_totals),
+            "bplus_std": statistics.pstdev(bplus_totals) if len(bplus_totals) > 1 else 0.0,
+            "bruteforce_mean": statistics.mean(brute_totals),
+            "bruteforce_std": statistics.pstdev(brute_totals) if len(brute_totals) > 1 else 0.0,
+        }
+
     def run_tests(
         self,
         sizes=None,
@@ -138,6 +281,61 @@ class PerformanceAnalyzer:
 
         return results
 
+    def run_advanced_tests(
+        self,
+        sizes=None,
+        random_task_count=800,
+        benchmark_runs=5,
+        search_count=200,
+        range_query_count=80,
+        delete_count=200,
+    ):
+        if sizes is None:
+            sizes = list(range(10, 100000, 1000))
+
+        results = {
+            "sizes": [],
+            "random_performance": {"bplus": [], "bruteforce": []},
+            "memory_usage": {"bplus": [], "bruteforce": []},
+            "automated_benchmark": {
+                "bplus_mean": [],
+                "bplus_std": [],
+                "bruteforce_mean": [],
+                "bruteforce_std": [],
+            },
+        }
+
+        for size in sizes:
+            key_space = size * 10
+            keys = self.rng.sample(range(key_space), size)
+
+            bplus_random, brute_random = self._measure_random_performance(
+                size=size,
+                task_count=random_task_count,
+            )
+
+            bplus_mem, brute_mem = self._measure_memory_usage(keys)
+
+            suite_stats = self._measure_automated_benchmark(
+                size=size,
+                benchmark_runs=benchmark_runs,
+                search_count=search_count,
+                range_query_count=range_query_count,
+                delete_count=delete_count,
+            )
+
+            results["sizes"].append(size)
+            results["random_performance"]["bplus"].append(bplus_random)
+            results["random_performance"]["bruteforce"].append(brute_random)
+            results["memory_usage"]["bplus"].append(bplus_mem)
+            results["memory_usage"]["bruteforce"].append(brute_mem)
+            results["automated_benchmark"]["bplus_mean"].append(suite_stats["bplus_mean"])
+            results["automated_benchmark"]["bplus_std"].append(suite_stats["bplus_std"])
+            results["automated_benchmark"]["bruteforce_mean"].append(suite_stats["bruteforce_mean"])
+            results["automated_benchmark"]["bruteforce_std"].append(suite_stats["bruteforce_std"])
+
+        return results
+
     def plot_results(self, results, save_prefix=None, show=True):
         sizes = results["sizes"]
         operations = [
@@ -168,6 +366,71 @@ class PerformanceAnalyzer:
 
         if save_prefix:
             fig.savefig(f"{save_prefix}_performance.png", dpi=160)
+
+        if show:
+            plt.show()
+
+        return fig
+
+    def plot_advanced_results(self, results, save_prefix=None, show=True):
+        sizes = results["sizes"]
+
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
+
+        axes[0].plot(
+            sizes,
+            results["random_performance"]["bplus"],
+            label="B+ Tree",
+            marker="o",
+        )
+        axes[0].plot(
+            sizes,
+            results["random_performance"]["bruteforce"],
+            label="Brute Force",
+            marker="s",
+        )
+        axes[0].set_title("Random Task Mix Time")
+        axes[0].set_xlabel("Number of Keys")
+        axes[0].set_ylabel("Time (s)")
+        axes[0].grid(True, linestyle="--", alpha=0.4)
+        axes[0].legend()
+
+        bplus_mem_mb = [value / (1024 * 1024) for value in results["memory_usage"]["bplus"]]
+        brute_mem_mb = [value / (1024 * 1024) for value in results["memory_usage"]["bruteforce"]]
+        axes[1].plot(sizes, bplus_mem_mb, label="B+ Tree", marker="o")
+        axes[1].plot(sizes, brute_mem_mb, label="Brute Force", marker="s")
+        axes[1].set_title("Peak Memory Usage")
+        axes[1].set_xlabel("Number of Keys")
+        axes[1].set_ylabel("Memory (MB)")
+        axes[1].grid(True, linestyle="--", alpha=0.4)
+        axes[1].legend()
+
+        axes[2].errorbar(
+            sizes,
+            results["automated_benchmark"]["bplus_mean"],
+            yerr=results["automated_benchmark"]["bplus_std"],
+            label="B+ Tree",
+            marker="o",
+            capsize=3,
+        )
+        axes[2].errorbar(
+            sizes,
+            results["automated_benchmark"]["bruteforce_mean"],
+            yerr=results["automated_benchmark"]["bruteforce_std"],
+            label="Brute Force",
+            marker="s",
+            capsize=3,
+        )
+        axes[2].set_title("Automated Benchmark (Mean ± Std)")
+        axes[2].set_xlabel("Number of Keys")
+        axes[2].set_ylabel("Total Time (s)")
+        axes[2].grid(True, linestyle="--", alpha=0.4)
+        axes[2].legend()
+
+        fig.tight_layout()
+
+        if save_prefix:
+            fig.savefig(f"{save_prefix}_advanced_performance.png", dpi=160)
 
         if show:
             plt.show()
