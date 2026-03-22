@@ -10,10 +10,12 @@ from database.bruteforce import BruteForceDB
 
 
 class PerformanceAnalyzer:
+    # Configure benchmark defaults including tree degree and deterministic randomness.
     def __init__(self, tree_degree=50, seed=42):
         self.tree_degree = tree_degree
         self.rng = random.Random(seed)
 
+    # Measure insertion time for both B+ tree and brute-force data structures.
     def _measure_insert(self, keys):
         bpt = BPlusTree(t=self.tree_degree)
         brute = BruteForceDB()
@@ -30,6 +32,7 @@ class PerformanceAnalyzer:
 
         return bpt, brute, bplus_time, brute_time
 
+    # Measure lookup time for sampled keys in both implementations.
     def _measure_search(self, bpt, brute, key_space, search_count):
         search_keys = self.rng.sample(range(key_space), search_count)
 
@@ -45,6 +48,7 @@ class PerformanceAnalyzer:
 
         return bplus_time, brute_time
 
+    # Measure range-query performance over randomly generated key intervals.
     def _measure_range_query(self, bpt, brute, key_space, query_count, span):
         ranges = []
         max_start = max(0, key_space - span - 1)
@@ -65,6 +69,7 @@ class PerformanceAnalyzer:
 
         return bplus_time, brute_time
 
+    # Measure deletion time for a sampled subset of inserted keys.
     def _measure_delete(self, bpt, brute, keys, delete_count):
         delete_keys = self.rng.sample(keys, delete_count)
 
@@ -80,20 +85,22 @@ class PerformanceAnalyzer:
 
         return bplus_time, brute_time
 
+    # Build a B+ tree preloaded with the provided keys.
     def _build_bplus(self, keys):
         bpt = BPlusTree(t=self.tree_degree)
         for key in keys:
             bpt.insert(key, key)
         return bpt
 
+    # Build a brute-force store preloaded with the provided keys.
     def _build_bruteforce(self, keys):
         brute = BruteForceDB()
         for key in keys:
             brute.insert(key)
         return brute
 
+    # Create a deterministic random sequence of insert, search, and delete tasks.
     def _generate_random_workload(self, initial_keys, task_count):
-        """Create a deterministic workload mix of insert/search/delete operations."""
         key_set = set(initial_keys)
         workload = []
         next_key = max(initial_keys) + 1 if initial_keys else 0
@@ -120,6 +127,7 @@ class PerformanceAnalyzer:
 
         return workload
 
+    # Execute a mixed workload on a fresh B+ tree and return elapsed time.
     def _apply_workload_bplus(self, keys, workload):
         bpt = self._build_bplus(keys)
         start = time.perf_counter()
@@ -132,6 +140,7 @@ class PerformanceAnalyzer:
                 bpt.delete(key)
         return time.perf_counter() - start
 
+    # Execute a mixed workload on a fresh brute-force store and return elapsed time.
     def _apply_workload_bruteforce(self, keys, workload):
         brute = self._build_bruteforce(keys)
         start = time.perf_counter()
@@ -144,6 +153,7 @@ class PerformanceAnalyzer:
                 brute.delete(key)
         return time.perf_counter() - start
 
+    # Measure total runtime for the same random workload on both structures.
     def _measure_random_performance(self, size, task_count):
         key_space = max(size * 20, task_count * 3)
         initial_keys = self.rng.sample(range(key_space), size)
@@ -153,6 +163,7 @@ class PerformanceAnalyzer:
         brute_time = self._apply_workload_bruteforce(initial_keys, workload)
         return bplus_time, brute_time
 
+    # Measure peak memory consumed while building a structure via a callback.
     def _peak_memory_for_builder(self, builder):
         gc.collect()
         tracemalloc.start()
@@ -163,11 +174,13 @@ class PerformanceAnalyzer:
             tracemalloc.stop()
         return peak
 
+    # Measure peak memory usage for constructing both data structures.
     def _measure_memory_usage(self, keys):
         bplus_peak = self._peak_memory_for_builder(lambda: self._build_bplus(keys))
         brute_peak = self._peak_memory_for_builder(lambda: self._build_bruteforce(keys))
         return bplus_peak, brute_peak
 
+    # Run repeated combined-operation benchmarks and summarize mean and spread.
     def _measure_automated_benchmark(
         self,
         size,
@@ -220,6 +233,7 @@ class PerformanceAnalyzer:
             "bruteforce_std": statistics.pstdev(brute_totals) if len(brute_totals) > 1 else 0.0,
         }
 
+    # Run per-operation timing tests across dataset sizes.
     def run_tests(
         self,
         sizes=None,
@@ -281,6 +295,7 @@ class PerformanceAnalyzer:
 
         return results
 
+    # Run advanced benchmarks for mixed workloads, memory, and repeated suites.
     def run_advanced_tests(
         self,
         sizes=None,
@@ -336,6 +351,7 @@ class PerformanceAnalyzer:
 
         return results
 
+    # Plot basic operation timing curves for B+ tree versus brute force.
     def plot_results(self, results, save_prefix=None, show=True):
         sizes = results["sizes"]
         operations = [
@@ -372,6 +388,7 @@ class PerformanceAnalyzer:
 
         return fig
 
+    # Plot advanced benchmark charts for random workload, memory, and variance.
     def plot_advanced_results(self, results, save_prefix=None, show=True):
         sizes = results["sizes"]
 

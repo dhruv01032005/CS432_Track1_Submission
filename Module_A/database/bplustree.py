@@ -1,6 +1,7 @@
 from bisect import bisect_left, bisect_right
 
 class BPlusTreeNode:
+    # Initialize a tree node as either a leaf or internal node container.
     def __init__(self, leaf=False):
         self.leaf = leaf
         self.keys = []
@@ -9,12 +10,14 @@ class BPlusTreeNode:
         self.next = None
 
 class BPlusTree:
+    # Initialize the B+ tree with a minimum degree and an empty leaf root.
     def __init__(self, t=3):
         if t < 2:
             raise ValueError("B+ Tree minimum degree t must be >= 2")
         self.root = BPlusTreeNode(leaf=True)
         self.t = t
 
+    # Traverse down from the root to find the leaf that should contain the key.
     def _find_leaf(self, key):
         node = self.root
         while not node.leaf:
@@ -22,12 +25,14 @@ class BPlusTree:
             node = node.children[idx]
         return node
 
+    # Return the leftmost leaf node for full in-order scans.
     def _leftmost_leaf(self):
         node = self.root
         while not node.leaf:
             node = node.children[0]
         return node
 
+    # Look up and return the value associated with a key, or None if absent.
     def search(self, key):
         leaf = self._find_leaf(key)
         idx = bisect_left(leaf.keys, key)
@@ -35,6 +40,7 @@ class BPlusTree:
             return leaf.values[idx]
         return None
 
+    # Insert or update a key-value pair while preserving B+ tree balance rules.
     def insert(self, key, value):
         root = self.root
         if len(root.keys) == (2 * self.t) - 1:
@@ -46,6 +52,7 @@ class BPlusTree:
         else:
             self._insert_non_full(root, key, value)
 
+    # Insert a key-value pair into a node that is guaranteed not to be full.
     def _insert_non_full(self, node, key, value):
         if node.leaf:
             idx = bisect_left(node.keys, key)
@@ -62,6 +69,7 @@ class BPlusTree:
                     idx += 1
             self._insert_non_full(node.children[idx], key, value)
 
+    # Split a full child node and promote the separator key into its parent.
     def _split_child(self, parent, index):
         t = self.t
         child = parent.children[index]
@@ -89,9 +97,11 @@ class BPlusTree:
             parent.keys.insert(index, promote_key)
             parent.children.insert(index + 1, new_node)
 
+    # Delete a key by delegating to the rebuild-based internal deletion routine.
     def delete(self, key):
         return self._delete(self.root, key)
 
+    # Remove a key by rebuilding the tree from all entries except that key.
     def _delete(self, node, key):
         value = self.search(key)
         if value is None:
@@ -104,6 +114,7 @@ class BPlusTree:
                 self.insert(k, v)
         return True
 
+    # Replace the stored value for an existing key.
     def update(self, key, new_value):
         leaf = self._find_leaf(key)
         idx = bisect_left(leaf.keys, key)
@@ -112,6 +123,7 @@ class BPlusTree:
             return True
         return False
 
+    # Return all key-value pairs with keys inside the inclusive range.
     def range_query(self, start_key, end_key):
         if start_key > end_key:
             return []
@@ -128,6 +140,7 @@ class BPlusTree:
             node = node.next
         return result
 
+    # Return every key-value pair in sorted key order.
     def get_all(self):
         node = self._leftmost_leaf()
         result = []
@@ -137,6 +150,7 @@ class BPlusTree:
             node = node.next
         return result
 
+    # Build and optionally render a Graphviz visualization of the current tree.
     def visualize_tree(self, as_figure=True):
         try:
             from graphviz import Digraph
@@ -176,10 +190,11 @@ class BPlusTree:
         image_data = dot.pipe(format="png")
         return Image(data=image_data)
 
+    # Escape text so it is safe to embed inside Graphviz node labels.
     def _escape_label_text(self, text):
-        """Escape characters that can affect plain Graphviz labels."""
         return str(text).replace("\\", "\\\\").replace("\n", "\\n")
 
+    # Add Graphviz nodes recursively for all internal and leaf tree nodes.
     def _add_nodes(self, dot, node):
         node_id = str(id(node))
         if node.leaf:
@@ -202,6 +217,7 @@ class BPlusTree:
             for child in node.children:
                 self._add_nodes(dot, child)
 
+    # Add Graphviz edges for child links and dashed leaf-level next pointers.
     def _add_edges(self, dot, node):
         node_id = str(id(node))
         if node.leaf:

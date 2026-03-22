@@ -1,6 +1,7 @@
 from .bplustree import BPlusTree
 
 class Table:
+    # Initialize table metadata and the backing B+ tree index.
     def __init__(self, name, schema, order=8, search_key=None):
         self.name = name
         self.schema = schema
@@ -18,6 +19,7 @@ class Table:
         self.search_key = search_key
         self.data = BPlusTree(t=max(2, int(order)))
 
+    # Validate record structure, required fields, and declared column types.
     def validate_record(self, record):
         if not isinstance(record, dict):
             raise TypeError("record must be a dictionary")
@@ -39,6 +41,7 @@ class Table:
 
         return True
 
+    # Insert a validated record keyed by the configured search column.
     def insert(self, record):
         self.validate_record(record)
         key = record[self.search_key]
@@ -49,12 +52,15 @@ class Table:
         self.data.insert(key, record.copy())
         return key
 
+    # Fetch a single record by its indexed key.
     def get(self, record_id):
         return self.data.search(record_id)
 
+    # Return all records currently stored in the table.
     def get_all(self):
         return [record for _, record in self.data.get_all()]
 
+    # Update a record and handle key changes safely in the index.
     def update(self, record_id, new_record):
         existing = self.get(record_id)
         if existing is None:
@@ -77,8 +83,10 @@ class Table:
 
         return self.data.update(record_id, updated)
 
+    # Delete a record by its indexed key.
     def delete(self, record_id):
         return self.data.delete(record_id)
 
+    # Return records whose indexed keys fall within the given range.
     def range_query(self, start_value, end_value):
         return [record for _, record in self.data.range_query(start_value, end_value)]
